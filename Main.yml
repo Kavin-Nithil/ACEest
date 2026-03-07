@@ -1,0 +1,146 @@
+name: ACEest CI/CD Pipeline
+
+on:
+  push:
+    branches: ["**"]          # Trigger on push to any branch
+  pull_request:
+    branches: ["**"]          # Trigger on any PR
+
+env:
+  IMAGE_NAME: aceest-fitness
+  IMAGE_TAG: ${{ github.sha }}
+
+jobs:
+
+  # ── Job 1: Lint ─────────────────────────────────────────────────────────────
+  lint:
+    name: "Build & Lint"
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install flake8
+
+      - name: Run flake8 lint (syntax + style)
+        run: |
+          # Stop the build if there are Python syntax errors or undefined names
+          flake8 app.py --count --select=E9,F63,F7,F82 --show-source --statistics
+          # Treat remaining style issues as warnings (exit-zero) — informational
+          flake8 app.py --count --exit-zero --max-complexity=12 --max-line-length=100 --statistics
+
+      - name: Verify app imports cleanly
+        run: python -c "import app; print('✅ app.py imports successfully')"
+
+
+  # ── Job 2: Unit & Integration Tests (host) ──────────────────────────────────
+  test:
+    name: "Automated Testing (Host)"
+    runs-on: ubuntu-latest
+    needs: lint                # Only run if lint passes
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run pytest with coverage
+        run: |
+          pytest tests/ -v \
+            --tb=short \
+            --cov=app \
+            --cov-report=term-missing \
+            --cov-report=xml:coverage.xml \
+            --cov-fail-under=80
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-report
+          path: coverage.xml
+
+
+  # ── Job 3: Docker Build & Container Tests ───────────────────────────────────
+  docker:
+    name: "Docker Image Assembly & Container Tests"
+    runs-on: ubuntu-latest
+    needs: test                # Only run if tests pass
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image
+        run: |
+          docker build \
+            --tag ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }} \
+            --tag ${{ env.IMAGE_NAME }}:latest \
+            --file Dockerfile \
+            .
+          echo "✅ Docker image built: ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}"
+
+      - name: Run pytest inside Docker container
+        run: |
+          docker run --rm \
+            -v ${{ github.workspace }}/tests:/app/tests \
+            --entrypoint python \
+            ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }} \
+            -m pytest tests/ -v --tb=short
+        # We mount the tests/ directory at runtime because the Dockerfile
+        # is intentionally a lean runtime image (no test files baked in).
+
+      - name: Smoke test — container health check
+        run: |
+          # Start container in background
+          docker run -d --name aceest-smoke -p 5000:5000 \
+            ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
+          # Wait for startup
+          sleep 5
+          # Hit the health endpoint
+          curl --fail http://localhost:5000/health || \
+            (docker logs aceest-smoke && exit 1)
+          echo "✅ Health check passed"
+          # Hit programs list
+          curl --fail http://localhost:5000/programs || \
+            (docker logs aceest-smoke && exit 1)
+          echo "✅ Programs endpoint OK"
+          docker stop aceest-smoke
+
+      - name: Scan image for vulnerabilities (Trivy)
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: "${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}"
+          format: "table"
+          exit-code: "0"         # Informational; set to "1" to block on HIGH/CRITICAL
+          severity: "HIGH,CRITICAL"
+        continue-on-error: true  # Don't fail the pipeline — just report
+
+      - name: Image size report
+        run: |
+          echo "📦 Docker image sizes:"
+          docker images ${{ env.IMAGE_NAME }}
