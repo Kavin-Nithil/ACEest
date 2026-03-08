@@ -296,5 +296,29 @@ def login():
         return jsonify({"error": f"Missing field: {e}"}), 400
 
 
+WORKOUT_LOGS = []
+
+@app.route("/workout-log", methods=["POST"])
+def log_workout():
+    data = request.get_json(force=True) or {}
+
+    try:
+        log = {
+            "member_id": int(data["member_id"]),
+            "workout": data["workout"],
+            "duration_minutes": int(data["duration_minutes"])
+        }
+
+        WORKOUT_LOGS.append(log)
+
+        return jsonify({
+            "message": "Workout logged successfully",
+            "log": log
+        }), 201
+
+    except KeyError as e:
+        return jsonify({"error": f"Missing field: {e}"}), 400
+
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=True)
