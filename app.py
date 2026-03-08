@@ -320,5 +320,29 @@ def log_workout():
         return jsonify({"error": f"Missing field: {e}"}), 400
 
 
+PROGRESS = {}
+
+@app.route("/progress", methods=["POST"])
+def track_progress():
+    data = request.get_json(force=True) or {}
+
+    try:
+        member_id = int(data["member_id"])
+        weight = float(data["weight_kg"])
+
+        if member_id not in PROGRESS:
+            PROGRESS[member_id] = []
+
+        PROGRESS[member_id].append(weight)
+
+        return jsonify({
+            "message": "Progress updated",
+            "weights": PROGRESS[member_id]
+        })
+
+    except KeyError as e:
+        return jsonify({"error": f"Missing field: {e}"}), 400
+
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=True)

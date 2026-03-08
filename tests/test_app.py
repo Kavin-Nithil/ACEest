@@ -430,3 +430,38 @@ class TestWorkoutLogRoute:
                            content_type="application/json")
 
         assert resp.status_code == 400
+
+
+class TestProgressRoute:
+
+    def test_add_progress(self, client):
+        member = add_member("Amit", 30, "FL")
+
+        resp = client.post("/progress",
+                           json={"member_id": member["id"], "weight_kg": 80},
+                           content_type="application/json")
+
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["weights"][0] == 80
+
+    def test_multiple_progress_entries(self, client):
+        member = add_member("Sara", 26, "BG")
+
+        client.post("/progress",
+                    json={"member_id": member["id"], "weight_kg": 70},
+                    content_type="application/json")
+
+        resp = client.post("/progress",
+                           json={"member_id": member["id"], "weight_kg": 69},
+                           content_type="application/json")
+
+        data = resp.get_json()
+        assert len(data["weights"]) == 3
+
+    def test_progress_missing_field(self, client):
+        resp = client.post("/progress",
+                           json={"member_id": 1},
+                           content_type="application/json")
+
+        assert resp.status_code == 400
