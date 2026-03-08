@@ -375,3 +375,58 @@ class TestMembersRoute:
                            json={"name": "Test", "age": 25, "program": "YOGA"},
                            content_type="application/json")
         assert resp.status_code == 400
+
+
+class TestLoginRoute:
+
+    def test_login_success(self, client):
+        member = add_member("Kavin", 25, "MG")
+
+        resp = client.post("/login",
+                           json={"name": "Kavin", "member_id": member["id"]},
+                           content_type="application/json")
+
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["member"]["name"] == "Kavin"
+
+    def test_login_invalid_credentials(self, client):
+        member = add_member("Rahul", 28, "FL")
+
+        resp = client.post("/login",
+                           json={"name": "Wrong", "member_id": member["id"]},
+                           content_type="application/json")
+
+        assert resp.status_code == 401
+
+    def test_login_missing_field(self, client):
+        resp = client.post("/login",
+                           json={"name": "Kavin"},
+                           content_type="application/json")
+
+        assert resp.status_code == 400
+
+
+class TestWorkoutLogRoute:
+
+    def test_log_workout_success(self, client):
+        member = add_member("Ravi", 27, "MG")
+
+        resp = client.post("/workout-log",
+                           json={
+                               "member_id": member["id"],
+                               "workout": "Bench Press 5x5",
+                               "duration_minutes": 45
+                           },
+                           content_type="application/json")
+
+        assert resp.status_code == 201
+        data = resp.get_json()
+        assert data["log"]["workout"] == "Bench Press 5x5"
+
+    def test_log_workout_missing_field(self, client):
+        resp = client.post("/workout-log",
+                           json={"member_id": 1},
+                           content_type="application/json")
+
+        assert resp.status_code == 400
