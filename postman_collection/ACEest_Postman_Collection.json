@@ -1,0 +1,702 @@
+{
+  "info": {
+    "_postman_id": "aceest-fitness-api-v1",
+    "name": "ACEest Fitness & Gym API",
+    "description": "Complete Postman collection for ACEest Fitness & Gym REST API.\n\nBase URL: http://localhost:5000\n\nEndpoints covered:\n- GET  /health\n- GET  /programs\n- GET  /programs/{code}\n- POST /bmi\n- POST /calories\n- POST /members\n- GET  /members/{id}\n\nSet the {{base_url}} variable to http://localhost:5000 for local testing,\nor to your deployed URL in production.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:5000",
+      "type": "string"
+    },
+    {
+      "key": "member_id",
+      "value": "1",
+      "type": "string",
+      "description": "Auto-set by the Add Member request via test script"
+    }
+  ],
+  "item": [
+
+    {
+      "name": "🟢 Health Check",
+      "item": [
+        {
+          "name": "GET /health — Service health check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/health",
+              "host": ["{{base_url}}"],
+              "path": ["health"]
+            },
+            "description": "Returns service status. Use this to confirm the Flask server is running before making other requests."
+          },
+          "response": [
+            {
+              "name": "200 OK — Service running",
+              "status": "OK",
+              "code": 200,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"status\": \"ok\",\n  \"service\": \"ACEest Fitness & Gym API\"\n}"
+            }
+          ],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Status is ok', () => {",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json.status).to.eql('ok');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    },
+
+    {
+      "name": "📋 Programs",
+      "item": [
+        {
+          "name": "GET /programs — List all programs",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/programs",
+              "host": ["{{base_url}}"],
+              "path": ["programs"]
+            },
+            "description": "Returns a summary of all three training programs: FL (Fat Loss), MG (Muscle Gain), BG (Beginner)."
+          },
+          "response": [
+            {
+              "name": "200 OK — All programs",
+              "status": "OK",
+              "code": 200,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"programs\": {\n    \"FL\": { \"name\": \"Fat Loss\", \"color\": \"#e74c3c\" },\n    \"MG\": { \"name\": \"Muscle Gain\", \"color\": \"#2ecc71\" },\n    \"BG\": { \"name\": \"Beginner\", \"color\": \"#3498db\" }\n  },\n  \"count\": 3\n}"
+            }
+          ],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Has 3 programs', () => {",
+                  "  pm.expect(pm.response.json().count).to.eql(3);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+
+        {
+          "name": "GET /programs/FL — Fat Loss program",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/programs/FL",
+              "host": ["{{base_url}}"],
+              "path": ["programs", "FL"]
+            },
+            "description": "Returns full workout schedule and nutrition plan for the Fat Loss program."
+          },
+          "response": [
+            {
+              "name": "200 OK — Fat Loss program",
+              "status": "OK",
+              "code": 200,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"code\": \"FL\",\n  \"name\": \"Fat Loss\",\n  \"workout\": [\n    \"Mon: 5x5 Back Squat + AMRAP\",\n    \"Tue: EMOM 20min Assault Bike\",\n    \"Wed: Bench Press + 21-15-9\",\n    \"Thu: 10RFT Deadlifts/Box Jumps\",\n    \"Fri: 30min Active Recovery\"\n  ],\n  \"diet\": {\n    \"breakfast\": \"3 Egg Whites + Oats Idli\",\n    \"lunch\": \"Grilled Chicken + Brown Rice\",\n    \"dinner\": \"Fish Curry + Millet Roti\",\n    \"target_kcal\": 2000\n  },\n  \"color\": \"#e74c3c\"\n}"
+            }
+          ],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Has workout array', () => {",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json.workout).to.be.an('array');",
+                  "  pm.expect(json.diet.target_kcal).to.eql(2000);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+
+        {
+          "name": "GET /programs/MG — Muscle Gain program",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/programs/MG",
+              "host": ["{{base_url}}"],
+              "path": ["programs", "MG"]
+            },
+            "description": "Returns full workout schedule and nutrition plan for the Muscle Gain program."
+          },
+          "response": [
+            {
+              "name": "200 OK — Muscle Gain program",
+              "status": "OK",
+              "code": 200,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"code\": \"MG\",\n  \"name\": \"Muscle Gain\",\n  \"diet\": { \"target_kcal\": 3200 }\n}"
+            }
+          ]
+        },
+
+        {
+          "name": "GET /programs/BG — Beginner program",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/programs/BG",
+              "host": ["{{base_url}}"],
+              "path": ["programs", "BG"]
+            },
+            "description": "Returns full workout schedule and nutrition plan for the Beginner program."
+          },
+          "response": []
+        },
+
+        {
+          "name": "GET /programs/INVALID — 404 Not Found",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/programs/ZUMBA",
+              "host": ["{{base_url}}"],
+              "path": ["programs", "ZUMBA"]
+            },
+            "description": "Demonstrates 404 handling for a program code that does not exist."
+          },
+          "response": [
+            {
+              "name": "404 Not Found",
+              "status": "NOT FOUND",
+              "code": 404,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"error\": \"Program 'ZUMBA' not found. Valid codes: FL, MG, BG\"\n}"
+            }
+          ],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Returns 404', () => pm.response.to.have.status(404));",
+                  "pm.test('Error message present', () => {",
+                  "  pm.expect(pm.response.json().error).to.include('not found');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    },
+
+    {
+      "name": "⚖️ BMI Calculator",
+      "item": [
+        {
+          "name": "POST /bmi — Normal weight",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"weight_kg\": 70,\n  \"height_cm\": 175\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{base_url}}/bmi",
+              "host": ["{{base_url}}"],
+              "path": ["bmi"]
+            },
+            "description": "Calculates BMI and returns WHO classification.\nBMI = weight(kg) / height(m)²\nResult: 22.86 → Normal weight"
+          },
+          "response": [
+            {
+              "name": "200 OK — Normal weight",
+              "status": "OK",
+              "code": 200,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"bmi\": 22.86,\n  \"classification\": \"Normal weight\",\n  \"weight_kg\": 70.0,\n  \"height_cm\": 175.0\n}"
+            }
+          ],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('BMI is a number', () => {",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json.bmi).to.be.a('number');",
+                  "  pm.expect(json.classification).to.be.a('string');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+
+        {
+          "name": "POST /bmi — Obese classification",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"weight_kg\": 110,\n  \"height_cm\": 170\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{base_url}}/bmi",
+              "host": ["{{base_url}}"],
+              "path": ["bmi"]
+            },
+            "description": "BMI = 38.06 → Obese"
+          },
+          "response": [
+            {
+              "name": "200 OK — Obese",
+              "status": "OK",
+              "code": 200,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"bmi\": 38.06,\n  \"classification\": \"Obese\",\n  \"weight_kg\": 110.0,\n  \"height_cm\": 170.0\n}"
+            }
+          ]
+        },
+
+        {
+          "name": "POST /bmi — ❌ Missing field (400)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"weight_kg\": 70\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{base_url}}/bmi",
+              "host": ["{{base_url}}"],
+              "path": ["bmi"]
+            },
+            "description": "height_cm is missing — should return 400 Bad Request."
+          },
+          "response": [
+            {
+              "name": "400 Bad Request",
+              "status": "BAD REQUEST",
+              "code": 400,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"error\": \"Missing field: 'height_cm'\"\n}"
+            }
+          ],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Returns 400', () => pm.response.to.have.status(400));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+
+        {
+          "name": "POST /bmi — ❌ Zero height (400)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"weight_kg\": 70,\n  \"height_cm\": 0\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{base_url}}/bmi",
+              "host": ["{{base_url}}"],
+              "path": ["bmi"]
+            },
+            "description": "height_cm = 0 is invalid — division by zero protection."
+          },
+          "response": []
+        }
+      ]
+    },
+
+    {
+      "name": "🔥 Calorie Calculator (TDEE)",
+      "item": [
+        {
+          "name": "POST /calories — Male, Moderate activity",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"weight_kg\": 75,\n  \"height_cm\": 178,\n  \"age\": 28,\n  \"gender\": \"male\",\n  \"activity\": \"moderate\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{base_url}}/calories",
+              "host": ["{{base_url}}"],
+              "path": ["calories"]
+            },
+            "description": "Calculates Total Daily Energy Expenditure (TDEE) using the Mifflin-St Jeor equation.\n\nActivity levels:\n- sedentary (×1.2)\n- light (×1.375)\n- moderate (×1.55)\n- active (×1.725)\n- very_active (×1.9)"
+          },
+          "response": [
+            {
+              "name": "200 OK — TDEE calculated",
+              "status": "OK",
+              "code": 200,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"tdee_kcal\": 2798,\n  \"input\": {\n    \"weight_kg\": \"75\",\n    \"height_cm\": \"178\",\n    \"age\": \"28\",\n    \"gender\": \"male\",\n    \"activity\": \"moderate\"\n  }\n}"
+            }
+          ],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('tdee_kcal is integer', () => {",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json.tdee_kcal).to.be.a('number');",
+                  "  pm.expect(Number.isInteger(json.tdee_kcal)).to.be.true;",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+
+        {
+          "name": "POST /calories — Female, Active",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"weight_kg\": 58,\n  \"height_cm\": 162,\n  \"age\": 25,\n  \"gender\": \"female\",\n  \"activity\": \"active\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{base_url}}/calories",
+              "host": ["{{base_url}}"],
+              "path": ["calories"]
+            }
+          },
+          "response": []
+        },
+
+        {
+          "name": "POST /calories — Very Active (athlete)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"weight_kg\": 85,\n  \"height_cm\": 182,\n  \"age\": 22,\n  \"gender\": \"male\",\n  \"activity\": \"very_active\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{base_url}}/calories",
+              "host": ["{{base_url}}"],
+              "path": ["calories"]
+            }
+          },
+          "response": []
+        },
+
+        {
+          "name": "POST /calories — ❌ Invalid gender (400)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"weight_kg\": 70,\n  \"height_cm\": 175,\n  \"age\": 30,\n  \"gender\": \"alien\",\n  \"activity\": \"moderate\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{base_url}}/calories",
+              "host": ["{{base_url}}"],
+              "path": ["calories"]
+            }
+          },
+          "response": [
+            {
+              "name": "400 Bad Request",
+              "status": "BAD REQUEST",
+              "code": 400,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"error\": \"Gender must be 'male' or 'female'.\"\n}"
+            }
+          ]
+        },
+
+        {
+          "name": "POST /calories — ❌ Invalid activity (400)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"weight_kg\": 70,\n  \"height_cm\": 175,\n  \"age\": 30,\n  \"gender\": \"male\",\n  \"activity\": \"extreme\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{base_url}}/calories",
+              "host": ["{{base_url}}"],
+              "path": ["calories"]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+
+    {
+      "name": "👤 Member Management",
+      "item": [
+        {
+          "name": "POST /members — Add new member (Fat Loss)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Arjun Sharma\",\n  \"age\": 28,\n  \"program\": \"FL\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{base_url}}/members",
+              "host": ["{{base_url}}"],
+              "path": ["members"]
+            },
+            "description": "Registers a new gym member. Returns the member record with auto-assigned ID.\nThe test script below saves the member ID to {{member_id}} for use in the GET request."
+          },
+          "response": [
+            {
+              "name": "201 Created",
+              "status": "CREATED",
+              "code": 201,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"message\": \"Member added successfully\",\n  \"member\": {\n    \"id\": 1,\n    \"name\": \"Arjun Sharma\",\n    \"age\": 28,\n    \"program\": \"FL\",\n    \"status\": \"active\"\n  }\n}"
+            }
+          ],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 201 Created', () => pm.response.to.have.status(201));",
+                  "pm.test('Member has ID', () => {",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json.member.id).to.be.a('number');",
+                  "  pm.expect(json.member.status).to.eql('active');",
+                  "  // Save ID for next request",
+                  "  pm.collectionVariables.set('member_id', json.member.id);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+
+        {
+          "name": "POST /members — Add member (Muscle Gain)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Priya Nair\",\n  \"age\": 24,\n  \"program\": \"MG\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{base_url}}/members",
+              "host": ["{{base_url}}"],
+              "path": ["members"]
+            }
+          },
+          "response": []
+        },
+
+        {
+          "name": "GET /members/:id — Retrieve member",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/members/{{member_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["members", "{{member_id}}"]
+            },
+            "description": "Retrieves a member by ID. Uses {{member_id}} variable set automatically by the POST /members test script."
+          },
+          "response": [
+            {
+              "name": "200 OK — Member found",
+              "status": "OK",
+              "code": 200,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"member\": {\n    \"id\": 1,\n    \"name\": \"Arjun Sharma\",\n    \"age\": 28,\n    \"program\": \"FL\",\n    \"status\": \"active\"\n  }\n}"
+            }
+          ],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Member data correct', () => {",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json.member).to.have.property('name');",
+                  "  pm.expect(json.member).to.have.property('program');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+
+        {
+          "name": "GET /members/9999 — ❌ Not Found (404)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/members/9999",
+              "host": ["{{base_url}}"],
+              "path": ["members", "9999"]
+            },
+            "description": "Requesting a non-existent member ID returns 404."
+          },
+          "response": [
+            {
+              "name": "404 Not Found",
+              "status": "NOT FOUND",
+              "code": 404,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"error\": \"Member with ID 9999 not found\"\n}"
+            }
+          ],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Returns 404', () => pm.response.to.have.status(404));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+
+        {
+          "name": "POST /members — ❌ Empty name (400)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"\",\n  \"age\": 25,\n  \"program\": \"FL\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{base_url}}/members",
+              "host": ["{{base_url}}"],
+              "path": ["members"]
+            }
+          },
+          "response": []
+        },
+
+        {
+          "name": "POST /members — ❌ Invalid program (400)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Test User\",\n  \"age\": 25,\n  \"program\": \"YOGA\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{base_url}}/members",
+              "host": ["{{base_url}}"],
+              "path": ["members"]
+            },
+            "description": "'YOGA' is not a valid program code — FL, MG, BG are the only valid values."
+          },
+          "response": [
+            {
+              "name": "400 Bad Request",
+              "status": "BAD REQUEST",
+              "code": 400,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"error\": \"Program 'YOGA' does not exist.\"\n}"
+            }
+          ]
+        },
+
+        {
+          "name": "POST /members — ❌ Missing field (400)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Test User\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{base_url}}/members",
+              "host": ["{{base_url}}"],
+              "path": ["members"]
+            },
+            "description": "age and program fields are missing."
+          },
+          "response": []
+        }
+      ]
+    }
+
+  ]
+}
