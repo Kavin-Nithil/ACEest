@@ -368,5 +368,25 @@ def diet_log():
         return jsonify({"error": f"Missing field: {e}"}), 400
 
 
+@app.route("/dashboard/<int:member_id>")
+def dashboard(member_id):
+
+    member = MEMBERS.get(member_id)
+
+    if not member:
+        return jsonify({"error": "Member not found"}), 404
+
+    workouts = [w for w in WORKOUT_LOGS if w["member_id"] == member_id]
+    meals = [d for d in DIET_LOGS if d["member_id"] == member_id]
+    progress = PROGRESS.get(member_id, [])
+
+    return jsonify({
+        "member": member,
+        "total_workouts": len(workouts),
+        "meals_logged": len(meals),
+        "weight_history": progress
+    })
+
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=True)
