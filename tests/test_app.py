@@ -465,3 +465,28 @@ class TestProgressRoute:
                            content_type="application/json")
 
         assert resp.status_code == 400
+
+
+class TestDietLogRoute:
+
+    def test_diet_log_success(self, client):
+        member = add_member("Priya", 24, "FL")
+
+        resp = client.post("/diet-log",
+                           json={
+                               "member_id": member["id"],
+                               "meal": "Chicken Biryani",
+                               "calories": 600
+                           },
+                           content_type="application/json")
+
+        assert resp.status_code == 201
+        data = resp.get_json()
+        assert data["log"]["meal"] == "Chicken Biryani"
+
+    def test_diet_log_missing_field(self, client):
+        resp = client.post("/diet-log",
+                           json={"member_id": 1},
+                           content_type="application/json")
+
+        assert resp.status_code == 400

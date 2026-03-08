@@ -344,5 +344,29 @@ def track_progress():
         return jsonify({"error": f"Missing field: {e}"}), 400
 
 
+DIET_LOGS = []
+
+@app.route("/diet-log", methods=["POST"])
+def diet_log():
+    data = request.get_json(force=True) or {}
+
+    try:
+        log = {
+            "member_id": int(data["member_id"]),
+            "meal": data["meal"],
+            "calories": int(data["calories"])
+        }
+
+        DIET_LOGS.append(log)
+
+        return jsonify({
+            "message": "Meal logged",
+            "log": log
+        }), 201
+
+    except KeyError as e:
+        return jsonify({"error": f"Missing field: {e}"}), 400
+
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=True)
