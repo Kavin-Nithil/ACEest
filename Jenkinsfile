@@ -288,52 +288,89 @@ pipeline {
                 sh '''
                     CONTAINER_NAME="aceest-jenkins-${BUILD_NUMBER}"
 
-                    # Start the container
+                    # ── Start app container (NO -p flag needed) ─────────────────
+                    # Both Jenkins and this container share the default bridge
+                    # network, so they can reach each other by container IP.
                     docker run -d \
-                        --name  ${CONTAINER_NAME} \
-                        -p 5001:5000 \
+                        --name ${CONTAINER_NAME} \
                         ${IMAGE_NAME}:${IMAGE_TAG}
 
-                    echo "Container started — waiting 5 seconds for Flask to boot..."
-                    sleep 5
+                    echo "Container started. Waiting for Flask to boot..."
+                    sleep 6
 
-                    # /health endpoint
-                    echo "--- Testing /health ---"
-                    curl --fail --silent --show-error \
-                        http://localhost:5001/health \
-                        | python3 -m json.tool
-                    echo "✅ /health OK"
+                    # ── Get the container's internal bridge IP ──────────────────
+                    CONTAINER_IP=$(docker inspect \
+                        --format "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}" \
+                        ${CONTAINER_NAME})
 
-                    # /programs endpoint
-                    echo "--- Testing /programs ---"
-                    curl --fail --silent --show-error \
-                        http://localhost:5001/programs \
-                        | python3 -m json.tool
-                    echo "✅ /programs OK"
+                    if [ -z "${CONTAINER_IP}" ]; then
+                        echo "❌ Could not determine container IP — aborting"
+                        docker logs ${CONTAINER_NAME}
+                        exit 1
+                    fi
 
-                    # /programs/FL endpoint
-                    echo "--- Testing /programs/FL ---"
-                    curl --fail --silent --show-error \
-                        http://localhost:5001/programs/FL \
-                        | python3 -m json.tool
-                    echo "✅ /programs/FL OK"
+                    BASE_URL="http://${CONTAINER_IP}:5000"
+                    echo "Container IP  : ${CONTAINER_IP}"
+                    echo "Testing URL   : ${BASE_URL}"
+                    echo ""
 
-                    # POST /bmi endpoint
-                    echo "--- Testing POST /bmi ---"
-                    curl --fail --silent --show-error \
-                        -X POST http://localhost:5001/bmi \
-                        -H "Content-Type: application/json" \
-                        -d "{\"weight_kg\": 70, \"height_cm\": 175}" \
-                        | python3 -m json.tool
-                    echo "✅ POST /bmi OK"
+                    # ── Helper: curl with retry (up to 3 attempts) ──────────────
+                    curl_check() {
+                        local LABEL="$1"
+                        local METHOD="$2"
+                        local URL="$3"
+                        local DATA="$4"
+
+                        echo "--- ${LABEL} ---"
+                        for attempt in 1 2 3; do
+                            if [ -n "${DATA}" ]; then
+                                RESPONSE=$(curl --fail --silent --show-error \
+                                    --max-time 10 \
+                                    -X "${METHOD}" "${URL}" \
+                                    -H "Content-Type: application/json" \
+                                    -d "${DATA}" 2>&1)
+                            else
+                                RESPONSE=$(curl --fail --silent --show-error \
+                                    --max-time 10 \
+                                    "${URL}" 2>&1)
+                            fi
+
+                            EXIT_CODE=$?
+                            if [ ${EXIT_CODE} -eq 0 ]; then
+                                echo "${RESPONSE}" | python3 -m json.tool
+                                echo "✅ ${LABEL} — OK"
+                                return 0
+                            fi
+
+                            echo "  Attempt ${attempt} failed (exit ${EXIT_CODE}): ${RESPONSE}"
+                            sleep 3
+                        done
+
+                        echo "❌ ${LABEL} — FAILED after 3 attempts"
+                        docker logs ${CONTAINER_NAME}
+                        return 1
+                    }
+
+                    # ── Run smoke tests ─────────────────────────────────────────
+                    curl_check "GET /health"      "GET"  "${BASE_URL}/health"
+                    curl_check "GET /programs"    "GET"  "${BASE_URL}/programs"
+                    curl_check "GET /programs/FL" "GET"  "${BASE_URL}/programs/FL"
+                    curl_check "POST /bmi"        "POST" "${BASE_URL}/bmi" \
+                        '{"weight_kg": 70, "height_cm": 175}'
+                    curl_check "POST /calories"   "POST" "${BASE_URL}/calories" \
+                        '{"weight_kg":70,"height_cm":175,"age":25,"gender":"male","activity":"moderate"}'
+
+                    echo ""
+                    echo "✅ All smoke tests passed"
                 '''
             }
             post {
                 always {
-                    // Always stop and remove the smoke test container
                     sh '''
-                        docker stop aceest-jenkins-${BUILD_NUMBER} || true
-                        docker rm   aceest-jenkins-${BUILD_NUMBER} || true
+                        echo "Cleaning up smoke test container..."
+                        docker stop aceest-jenkins-${BUILD_NUMBER} 2>/dev/null || true
+                        docker rm   aceest-jenkins-${BUILD_NUMBER} 2>/dev/null || true
+                        echo "✅ Container removed"
                     '''
                 }
             }
