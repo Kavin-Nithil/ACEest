@@ -63,7 +63,7 @@ PROGRAMS = {
     }
 }
 
-MEMBERS = {}
+ut  = {}
 _member_id_counter = [1]
 
 
@@ -273,6 +273,27 @@ def get_member_route(member_id):
     if member is None:
         return jsonify({"error": f"Member with ID {member_id} not found"}), 404
     return jsonify({"member": member})
+
+@app.route("/login", methods=["POST"])
+def login():
+    data = request.get_json(force=True) or {}
+
+    try:
+        name = data["name"]
+        member_id = int(data["member_id"])
+
+        member = MEMBERS.get(member_id)
+
+        if member and member["name"].lower() == name.lower():
+            return jsonify({
+                "message": "Login successful",
+                "member": member
+            })
+        else:
+            return jsonify({"error": "Invalid credentials"}), 401
+
+    except KeyError as e:
+        return jsonify({"error": f"Missing field: {e}"}), 400
 
 
 if __name__ == "__main__":
