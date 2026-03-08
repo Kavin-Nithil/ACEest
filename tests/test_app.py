@@ -490,3 +490,38 @@ class TestDietLogRoute:
                            content_type="application/json")
 
         assert resp.status_code == 400
+
+
+class TestDashboardRoute:
+
+    def test_dashboard_returns_member_data(self, client):
+        member = add_member("John", 32, "MG")
+
+        resp = client.get(f"/dashboard/{member['id']}")
+
+        assert resp.status_code == 200
+        data = resp.get_json()
+
+        assert data["member"]["name"] == "John"
+        assert data["total_workouts"] == 1
+
+    def test_dashboard_with_logs(self, client):
+        member = add_member("Kiran", 29, "FL")
+
+        client.post("/workout-log",
+                    json={
+                        "member_id": member["id"],
+                        "workout": "Deadlift",
+                        "duration_minutes": 30
+                    },
+                    content_type="application/json")
+
+        resp = client.get(f"/dashboard/{member['id']}")
+        data = resp.get_json()
+
+        assert data["total_workouts"] == 2
+
+    def test_dashboard_member_not_found(self, client):
+        resp = client.get("/dashboard/9999")
+
+        assert resp.status_code == 404
