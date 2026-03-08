@@ -1,10 +1,8 @@
 # 🏋️ ACEest Fitness & Gym — DevOps CI/CD Project
 
-[![CI/CD Pipeline](https://github.com/Kavin-Nithil/ACEest/actions/workflows/main.yml/badge.svg)](https://github.com/Kavin-Nithil/ACEest/actions)
 ![Python](https://img.shields.io/badge/Python-3.12-blue)
 ![Flask](https://img.shields.io/badge/Flask-3.0.3-lightgrey)
 ![Docker](https://img.shields.io/badge/Docker-Containerized-blue)
-![License](https://img.shields.io/badge/License-MIT-green)
 
 > **BITS Pilani WILPD — Introduction to DevOps (CSIZG514/SEZG514) — Assignment 1**
 
