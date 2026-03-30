@@ -293,6 +293,7 @@ pipeline {
                     # network, so they can reach each other by container IP.
                     docker run -d \
                         --name ${CONTAINER_NAME} \
+                        --network aceest-ci \
                         ${IMAGE_NAME}:${IMAGE_TAG}
 
                     echo "Container started. Waiting for Flask to boot..."
@@ -309,7 +310,7 @@ pipeline {
                         exit 1
                     fi
 
-                    BASE_URL="http://${CONTAINER_IP}:5000"
+                    BASE_URL="http://${CONTAINER_NAME}:5000"
                     echo "Container IP  : ${CONTAINER_IP}"
                     echo "Testing URL   : ${BASE_URL}"
                     echo ""
