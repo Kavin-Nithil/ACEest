@@ -1,0 +1,22 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: aceest-ab-experiment
+  namespace: __NAMESPACE__
+  annotations:
+    nginx.ingress.kubernetes.io/canary: "true"
+    nginx.ingress.kubernetes.io/canary-by-header: "X-Experiment"
+    nginx.ingress.kubernetes.io/canary-by-header-value: "fitness-b"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: __APP_HOST__
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: aceest-ab-b
+                port:
+                  number: 80

@@ -1,425 +1,223 @@
-// ─────────────────────────────────────────────────────────────────────────────
-// ACEest Fitness & Gym — Jenkinsfile (Declarative Pipeline)
-//
-// TRIGGER MODEL:
-//   This pipeline is designed to be triggered by the GitHub Actions Release
-//   job via a webhook/API call. When GitHub publishes a new Release (e.g.
-//   v1.0.0), it calls Jenkins' buildWithParameters endpoint, passing:
-//
-//     RELEASE_TAG   — the git tag that was released  (e.g. "v1.0.0")
-//     GITHUB_REPO   — the GitHub repo               (e.g. "user/aceest-devops")
-//     RELEASE_URL   — the GitHub Release page URL
-//     TRIGGERED_BY  — always "github-release-action"
-//
-//   Jenkins then checks out EXACTLY that tag and runs a clean BUILD pipeline
-//   on the released code — guaranteeing the build is reproducible.
-//
-// CAN ALSO BE TRIGGERED MANUALLY:
-//   Dashboard → aceest-pipeline → Build with Parameters
-//   Set RELEASE_TAG to any tag (e.g. v1.0.0) or leave blank for latest main.
-//
-// REQUIRED JENKINS SETUP:
-//   1. Plugins: Pipeline, Git, Docker Pipeline, HTML Publisher, JUnit
-//   2. Credentials: Add GitHub repo credentials as ID "github-credentials"
-//      (needed only for private repos; skip for public)
-//   3. Jenkins must have Docker installed on the agent node
-//   4. For GitHub webhook: install "Generic Webhook Trigger" plugin and
-//      configure as shown in JENKINS_SETUP.md
-//
-// PIPELINE STAGES:
-//   1. Checkout Release Tag   — git checkout the exact released tag
-//   2. Setup Environment      — virtualenv + pip install
-//   3. Lint                   — flake8 syntax + style
-//   4. Test                   — pytest + JUnit + HTML coverage report
-//   5. Docker Build           — build image tagged with release version
-//   6. Container Smoke Test   — live curl tests against running container
-//   7. Release Confirmation   — print build summary
-// ─────────────────────────────────────────────────────────────────────────────
-
 pipeline {
-
     agent any
 
-    // ── Build parameters — populated by GitHub Actions webhook ──────────────
     parameters {
-        string(
-            name: 'RELEASE_TAG',
-            defaultValue: '',
-            description: 'Git tag to build (e.g. v1.0.0). Leave blank to build HEAD of main.'
+        choice(
+            name: 'DEPLOYMENT_STRATEGY',
+            choices: 'rolling\nblue-green\ncanary\nshadow\nab',
+            description: 'Deployment strategy to apply in Minikube.'
         )
         string(
-            name: 'GITHUB_REPO',
-            defaultValue: '',
-            description: 'GitHub repository (e.g. username/aceest-devops). Auto-set by webhook.'
+            name: 'IMAGE_REPO',
+            defaultValue: 'aceest-fitness',
+            description: 'Docker image repository/tag prefix available to Minikube.'
         )
         string(
-            name: 'RELEASE_URL',
+            name: 'IMAGE_TAG',
             defaultValue: '',
-            description: 'GitHub Release URL. Auto-set by webhook.'
+            description: 'Optional image tag. Defaults to the Jenkins build number.'
         )
         string(
-            name: 'TRIGGERED_BY',
-            defaultValue: 'manual',
-            description: 'Who triggered this build. Auto-set by webhook.'
+            name: 'K8S_NAMESPACE',
+            defaultValue: 'aceest',
+            description: 'Namespace used for Kubernetes resources.'
+        )
+        string(
+            name: 'APP_HOST',
+            defaultValue: 'aceest.local',
+            description: 'Ingress host used for canary, shadow, and A/B validation.'
+        )
+        string(
+            name: 'CANARY_WEIGHT',
+            defaultValue: '20',
+            description: 'Percentage of traffic sent to the canary ingress.'
+        )
+        booleanParam(
+            name: 'PROMOTE_CANARY',
+            defaultValue: true,
+            description: 'Promote the verified canary build into the stable deployment.'
+        )
+        string(
+            name: 'SONARQUBE_SERVER',
+            defaultValue: 'SonarQube',
+            description: 'Configured Jenkins SonarQube server name.'
+        )
+        string(
+            name: 'SONAR_PROJECT_KEY',
+            defaultValue: 'aceest-fitness',
+            description: 'SonarQube project key.'
         )
     }
 
     environment {
-        // Use the release tag as Docker image tag; fall back to build number
-        IMAGE_NAME    = "aceest-fitness"
-        IMAGE_TAG     = "${params.RELEASE_TAG ?: env.BUILD_NUMBER}"
-        VENV_DIR      = "venv"
-        PYTHONPATH    = "${WORKSPACE}"
-
-        // GitHub repo URL — constructed from the parameter
-        // Replace <YOUR_USERNAME> with your actual GitHub username here,
-        // OR configure it as a Jenkins environment variable.
-        GITHUB_REPO_URL = "https://github.com/${params.GITHUB_REPO ?: 'YOUR_USERNAME/aceest-devops'}.git"
+        APP_NAME = 'aceest-fitness'
+        REPORTS_DIR = 'reports'
+        PYTHONUNBUFFERED = '1'
     }
 
     options {
         timestamps()
-        timeout(time: 25, unit: 'MINUTES')
-        buildDiscarder(logRotator(numToKeepStr: '15'))
-        // Prevent concurrent builds of the same job
+        timeout(time: 40, unit: 'MINUTES')
         disableConcurrentBuilds()
-    }
-
-    // ── Triggers ─────────────────────────────────────────────────────────────
-    // Primary trigger: GitHub Actions calls the REST API (see main.yml Job 4).
-    // Secondary trigger: poll SCM every 5 min as a fallback.
-    triggers {
-        pollSCM('H/5 * * * *')
+        buildDiscarder(logRotator(numToKeepStr: '15'))
     }
 
     stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+                sh 'chmod +x scripts/k8s/*.sh'
+            }
+        }
 
-        // ── Stage 1: Checkout the exact released tag ─────────────────────────
-        stage('Checkout Release Tag') {
+        stage('Initialize') {
             steps {
                 script {
-                    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-                    echo "📥  ACEest Jenkins BUILD Pipeline"
-                    echo "    Triggered by : ${params.TRIGGERED_BY}"
-                    echo "    Release tag  : ${params.RELEASE_TAG ?: '(none — using main)'}"
-                    echo "    GitHub repo  : ${env.GITHUB_REPO_URL}"
-                    if (params.RELEASE_URL) {
-                        echo "    Release URL  : ${params.RELEASE_URL}"
-                    }
-                    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+                    env.IMAGE_REPO_VALUE = params.IMAGE_REPO
+                    env.RESOLVED_IMAGE_TAG = params.IMAGE_TAG?.trim() ? params.IMAGE_TAG.trim() : env.BUILD_NUMBER
+                    env.IMAGE = "${params.IMAGE_REPO}:${env.RESOLVED_IMAGE_TAG}"
                 }
-
-                // If a release tag was passed, checkout that exact tag.
-                // Otherwise fall back to whatever SCM branch/commit is configured.
-                script {
-                    if (params.RELEASE_TAG) {
-                        checkout([
-                            $class: 'GitSCM',
-                            branches: [[name: "refs/tags/${params.RELEASE_TAG}"]],
-                            userRemoteConfigs: [[
-                                url: env.GITHUB_REPO_URL,
-                                // credentialsId: 'github-credentials'  // uncomment for private repos
-                            ]],
-                            extensions: [
-                                [$class: 'CleanBeforeCheckout'],      // clean workspace before checkout
-                                [$class: 'CloneOption', depth: 0, noTags: false, shallow: false]
-                            ]
-                        ])
-                        echo "✅ Checked out tag: ${params.RELEASE_TAG}"
-                    } else {
-                        echo "ℹ️  No RELEASE_TAG parameter — using SCM default (main branch)"
-                        checkout scm
-                    }
-                }
-
                 sh '''
-                    echo "---"
-                    echo "Git commit : $(git rev-parse HEAD)"
-                    echo "Git tag    : $(git describe --tags --exact-match 2>/dev/null || echo 'no tag at HEAD')"
-                    echo "Branch     : $(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo 'detached HEAD')"
-                    echo "---"
+                    rm -rf ${REPORTS_DIR} .deployment-state
+                    mkdir -p ${REPORTS_DIR}/htmlcov
+                    echo "Deployment strategy : ${DEPLOYMENT_STRATEGY}"
+                    echo "Image               : ${IMAGE}"
+                    echo "Namespace           : ${K8S_NAMESPACE}"
+                    echo "Ingress host        : ${APP_HOST}"
                 '''
             }
         }
 
-        // ── Stage 2: Setup Python Environment ────────────────────────────────
-        // Handles Debian/Ubuntu Jenkins agents where python3-venv and pip
-        // are NOT pre-installed (common with the jenkins/jenkins:lts image).
-        // Root access is available inside the Jenkins Docker container.
-        stage('Setup Environment') {
+        stage('Validate Tooling') {
             steps {
-                echo '🐍 Setting up Python environment...'
                 sh '''
-                    # ── Step 1: Show Python version ────────────────────────────
-                    echo "Python path    : $(which python3)"
-                    echo "Python version : $(python3 --version)"
-
-                    # ── Step 2: Install python3-venv + pip via apt if missing ──
-                    # On Debian/Ubuntu the venv module ships as a SEPARATE apt
-                    # package (python3.x-venv) and is not bundled with python3.
-                    # The Jenkins LTS Docker image is Debian-based — this check
-                    # runs fast (no-op) when the package is already present.
-                    if ! python3 -c "import venv" 2>/dev/null; then
-                        echo "venv module missing — installing via apt..."
-                        apt-get update -qq
-                        apt-get install -y \
-                            python3-venv \
-                            python3-pip \
-                            --no-install-recommends -qq
-                        echo "✅ python3-venv and python3-pip installed"
-                    else
-                        echo "✅ venv module already available — skipping apt"
-                    fi
-
-                    # ── Step 3: Remove any stale venv from previous builds ─────
-                    rm -rf ${VENV_DIR}
-
-                    # ── Step 4: Create a fresh virtual environment ─────────────
-                    python3 -m venv ${VENV_DIR}
-                    echo "✅ Virtual environment created: ${VENV_DIR}/"
-
-                    # ── Step 5: Activate and upgrade pip ───────────────────────
-                    . ${VENV_DIR}/bin/activate
-                    python3 -m pip install --upgrade pip --quiet
-                    echo "pip: $(pip --version)"
-
-                    # ── Step 6: Install all project + dev dependencies ─────────
-                    pip install -r requirements.txt
-                    pip install flake8 pytest-cov
-
-                    echo ""
-                    echo "✅ All dependencies installed successfully"
-                    pip list
+                    command -v docker
+                    command -v kubectl
+                    command -v minikube
+                    command -v sonar-scanner
+                    minikube status
                 '''
             }
         }
 
-        // ── Stage 3: Lint ─────────────────────────────────────────────────────
-        stage('Lint') {
+        stage('Build Container Image') {
             steps {
-                echo '🔍 Running flake8 linter...'
-                sh '''
-                    . ${VENV_DIR}/bin/activate
-
-                    # Hard fail: syntax errors & undefined names
-                    flake8 app.py \
-                        --count \
-                        --select=E9,F63,F7,F82 \
-                        --show-source \
-                        --statistics
-
-                    # Style checks (informational only — won't break build)
-                    flake8 app.py \
-                        --count \
-                        --exit-zero \
-                        --max-complexity=12 \
-                        --max-line-length=100 \
-                        --statistics
-
-                    echo "✅ Lint passed"
-                '''
-            }
-        }
-
-        // ── Stage 4: Test ─────────────────────────────────────────────────────
-        stage('Test') {
-            steps {
-                echo '🧪 Running pytest suite with coverage...'
-                sh '''
-                    . ${VENV_DIR}/bin/activate
-
-                    mkdir -p reports
-
-                    pytest tests/ -v \
-                        --tb=short \
-                        --junitxml=reports/junit.xml \
-                        --cov=app \
-                        --cov-report=xml:reports/coverage.xml \
-                        --cov-report=html:reports/htmlcov \
-                        --cov-fail-under=80
-
-                    echo "✅ All tests passed"
-                '''
-            }
-            post {
-                always {
-                    // Publish test results in Jenkins UI sidebar
-                    junit 'reports/junit.xml'
-
-                    // Publish HTML coverage report in Jenkins UI
-                    publishHTML(target: [
-                        allowMissing         : false,
-                        alwaysLinkToLastBuild: true,
-                        keepAll              : true,
-                        reportDir            : 'reports/htmlcov',
-                        reportFiles          : 'index.html',
-                        reportName           : 'Coverage Report'
-                    ])
-
-                    // Archive coverage XML as a build artifact
-                    archiveArtifacts artifacts: 'reports/coverage.xml',
-                                     allowEmptyArchive: false
-                }
-            }
-        }
-
-        // ── Stage 5: Docker Build ─────────────────────────────────────────────
-        // Tags the image with BOTH the release tag (e.g. v1.0.0) AND 'latest'.
-        stage('Docker Build') {
-            steps {
-                echo '🐳 Building Docker image...'
                 sh '''
                     docker build \
-                        --tag ${IMAGE_NAME}:${IMAGE_TAG} \
-                        --tag ${IMAGE_NAME}:latest \
-                        --file Dockerfile \
-                        .
-
-                    echo "✅ Docker image built"
-                    docker images ${IMAGE_NAME}
+                      --tag ${IMAGE} \
+                      --tag ${IMAGE_REPO_VALUE}:latest \
+                      --file Dockerfile \
+                      .
                 '''
             }
         }
 
-        // ── Stage 6: Container Smoke Test ─────────────────────────────────────
-        stage('Container Smoke Test') {
+        stage('Pytest In Container') {
             steps {
-                echo '💨 Running live smoke test against containerised app...'
                 sh '''
-                    CONTAINER_NAME="aceest-jenkins-${BUILD_NUMBER}"
-
-                    # ── Start app container (NO -p flag needed) ─────────────────
-                    # Both Jenkins and this container share the default bridge
-                    # network, so they can reach each other by container IP.
-                    docker run -d \
-                        --name ${CONTAINER_NAME} \
-                        --network aceest-ci \
-                        ${IMAGE_NAME}:${IMAGE_TAG}
-
-                    echo "Container started. Waiting for Flask to boot..."
-                    sleep 6
-
-                    # ── Get the container's internal bridge IP ──────────────────
-                    CONTAINER_IP=$(docker inspect \
-                        --format "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}" \
-                        ${CONTAINER_NAME})
-
-                    if [ -z "${CONTAINER_IP}" ]; then
-                        echo "❌ Could not determine container IP — aborting"
-                        docker logs ${CONTAINER_NAME}
-                        exit 1
-                    fi
-
-                    BASE_URL="http://${CONTAINER_NAME}:5000"
-                    echo "Container IP  : ${CONTAINER_IP}"
-                    echo "Testing URL   : ${BASE_URL}"
-                    echo ""
-
-                    # ── Helper: curl with retry (up to 3 attempts) ──────────────
-                    curl_check() {
-                        local LABEL="$1"
-                        local METHOD="$2"
-                        local URL="$3"
-                        local DATA="$4"
-
-                        echo "--- ${LABEL} ---"
-                        for attempt in 1 2 3; do
-                            if [ -n "${DATA}" ]; then
-                                RESPONSE=$(curl --fail --silent --show-error \
-                                    --max-time 10 \
-                                    -X "${METHOD}" "${URL}" \
-                                    -H "Content-Type: application/json" \
-                                    -d "${DATA}" 2>&1)
-                            else
-                                RESPONSE=$(curl --fail --silent --show-error \
-                                    --max-time 10 \
-                                    "${URL}" 2>&1)
-                            fi
-
-                            EXIT_CODE=$?
-                            if [ ${EXIT_CODE} -eq 0 ]; then
-                                echo "${RESPONSE}" | python3 -m json.tool
-                                echo "✅ ${LABEL} — OK"
-                                return 0
-                            fi
-
-                            echo "  Attempt ${attempt} failed (exit ${EXIT_CODE}): ${RESPONSE}"
-                            sleep 3
-                        done
-
-                        echo "❌ ${LABEL} — FAILED after 3 attempts"
-                        docker logs ${CONTAINER_NAME}
-                        return 1
-                    }
-
-                    # ── Run smoke tests ─────────────────────────────────────────
-                    curl_check "GET /health"      "GET"  "${BASE_URL}/health"
-                    curl_check "GET /programs"    "GET"  "${BASE_URL}/programs"
-                    curl_check "GET /programs/FL" "GET"  "${BASE_URL}/programs/FL"
-                    curl_check "POST /bmi"        "POST" "${BASE_URL}/bmi" \
-                        '{"weight_kg": 70, "height_cm": 175}'
-                    curl_check "POST /calories"   "POST" "${BASE_URL}/calories" \
-                        '{"weight_kg":70,"height_cm":175,"age":25,"gender":"male","activity":"moderate"}'
-
-                    echo ""
-                    echo "✅ All smoke tests passed"
+                    docker run --rm \
+                      --user "$(id -u):$(id -g)" \
+                      --volume "$PWD:/workspace" \
+                      --workdir /workspace \
+                      --env PYTHONPATH=/workspace \
+                      --entrypoint python \
+                      ${IMAGE} \
+                      -m pytest tests -v --tb=short \
+                      --junitxml=${REPORTS_DIR}/junit.xml \
+                      --cov=app \
+                      --cov-report=xml:${REPORTS_DIR}/coverage.xml \
+                      --cov-report=html:${REPORTS_DIR}/htmlcov \
+                      --cov-fail-under=80
                 '''
             }
-            post {
-                always {
-                    sh '''
-                        echo "Cleaning up smoke test container..."
-                        docker stop aceest-jenkins-${BUILD_NUMBER} 2>/dev/null || true
-                        docker rm   aceest-jenkins-${BUILD_NUMBER} 2>/dev/null || true
-                        echo "✅ Container removed"
-                    '''
-                }
-            }
         }
 
-        // ── Stage 7: Release Confirmation ────────────────────────────────────
-        // Prints a final summary. If a RELEASE_TAG was given, also tags the
-        // Docker image with that exact version string.
-        stage('Release Confirmation') {
+        stage('SonarQube Analysis') {
             steps {
-                script {
+                withSonarQubeEnv("${params.SONARQUBE_SERVER}") {
                     sh '''
-                        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-                        echo "🎉  BUILD #${BUILD_NUMBER} COMPLETE"
-                        echo ""
-                        echo "    Release tag  : ${IMAGE_TAG}"
-                        echo "    Docker image : ${IMAGE_NAME}:${IMAGE_TAG}"
-                        echo "    Docker image : ${IMAGE_NAME}:latest"
-                    '''
+                        sonar-scanner \
+                          -Dsonar.projectKey=${SONAR_PROJECT_KEY} \
+                          -Dsonar.projectVersion=${RESOLVED_IMAGE_TAG} \
+                          -Dsonar.buildString=${BUILD_TAG}
 
-                    if (params.RELEASE_URL) {
-                        sh "echo '    GitHub Release: ${params.RELEASE_URL}'"
-                    }
-
-                    sh '''
-                        echo ""
-                        echo "    Test results  → Jenkins sidebar: Test Results"
-                        echo "    Coverage      → Jenkins sidebar: Coverage Report"
-                        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+                        if [ -f .scannerwork/report-task.txt ]; then
+                          cp .scannerwork/report-task.txt ${REPORTS_DIR}/sonar-report-task.txt
+                        fi
                     '''
                 }
             }
         }
 
-    } // end stages
+        stage('Quality Gate') {
+            steps {
+                timeout(time: 10, unit: 'MINUTES') {
+                    waitForQualityGate abortPipeline: true
+                }
+            }
+        }
 
-    // ── Post-pipeline actions ─────────────────────────────────────────────────
-    post {
-        success {
-            echo "✅ ACEest BUILD #${env.BUILD_NUMBER} (${env.IMAGE_TAG}) — ALL STAGES PASSED"
+        stage('Prepare Minikube') {
+            steps {
+                sh '''
+                    minikube addons enable ingress
+                    kubectl -n ingress-nginx rollout status deployment/ingress-nginx-controller --timeout=180s
+                    minikube image load ${IMAGE}
+                '''
+            }
         }
-        failure {
-            echo "❌ ACEest BUILD #${env.BUILD_NUMBER} FAILED — review the stage that went red above"
+
+        stage('Deploy Strategy') {
+            steps {
+                withEnv([
+                    "DEPLOYMENT_STRATEGY=${params.DEPLOYMENT_STRATEGY}",
+                    "IMAGE_REPO=${params.IMAGE_REPO}",
+                    "IMAGE_TAG=${env.RESOLVED_IMAGE_TAG}",
+                    "K8S_NAMESPACE=${params.K8S_NAMESPACE}",
+                    "CANARY_WEIGHT=${params.CANARY_WEIGHT}",
+                    "APP_HOST=${params.APP_HOST}"
+                ]) {
+                    sh 'bash scripts/k8s/deploy_strategy.sh'
+                }
+            }
         }
-        always {
-            // Clean workspace after every build to save disk space
-            cleanWs()
+
+        stage('Verify Deployment') {
+            steps {
+                sh 'bash scripts/k8s/verify_rollout.sh'
+            }
+        }
+
+        stage('Promote Or Finalize') {
+            steps {
+                withEnv([
+                    "PROMOTE_CANARY=${params.PROMOTE_CANARY}"
+                ]) {
+                    sh 'bash scripts/k8s/promote_release.sh'
+                }
+            }
         }
     }
 
-} // end pipeline
+    post {
+        always {
+            junit allowEmptyResults: true, testResults: 'reports/junit.xml'
+            publishHTML(target: [
+                allowMissing: true,
+                alwaysLinkToLastBuild: true,
+                keepAll: true,
+                reportDir: 'reports/htmlcov',
+                reportFiles: 'index.html',
+                reportName: 'Coverage Report'
+            ])
+            archiveArtifacts artifacts: 'reports/**/*,k8s/**/*.yaml,scripts/k8s/*.sh,sonar-project.properties,.deployment-state',
+                             allowEmptyArchive: true
+        }
+        failure {
+            sh 'bash scripts/k8s/rollback.sh || true'
+        }
+        cleanup {
+            cleanWs()
+        }
+    }
+}

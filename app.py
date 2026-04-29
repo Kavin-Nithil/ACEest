@@ -5,9 +5,16 @@ A Flask-based REST API for gym management, serving program data,
 member management, and health metrics endpoints.
 """
 
+import os
+
 from flask import Flask, jsonify, request, render_template_string
 
 app = Flask(__name__)
+
+APP_VERSION = os.getenv("APP_VERSION", "dev")
+APP_TRACK = os.getenv("APP_TRACK", "local")
+APP_EXPERIMENT = os.getenv("APP_EXPERIMENT", "control")
+APP_COLOR = os.getenv("APP_COLOR", "n/a")
 
 # ─── In-Memory Data Store ────────────────────────────────────────────────────
 
@@ -151,6 +158,16 @@ def get_member(member_id: int) -> dict | None:
     return MEMBERS.get(member_id)
 
 
+def deployment_metadata() -> dict:
+    """Expose deployment labels so rollout strategies are easy to verify."""
+    return {
+        "version": APP_VERSION,
+        "track": APP_TRACK,
+        "experiment": APP_EXPERIMENT,
+        "color": APP_COLOR,
+    }
+
+
 
 HOME_HTML = """
 <!DOCTYPE html>
@@ -188,7 +205,11 @@ def index():
 @app.route("/health")
 def health():
     """Health check endpoint."""
-    return jsonify({"status": "ok", "service": "ACEest Fitness & Gym API"})
+    return jsonify({
+        "status": "ok",
+        "service": "ACEest Fitness & Gym API",
+        "deployment": deployment_metadata(),
+    })
 
 
 @app.route("/programs")

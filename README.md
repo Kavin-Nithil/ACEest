@@ -6,7 +6,7 @@
 
 > **BITS Pilani WILPD — Introduction to DevOps (CSIZG514/SEZG514) — Assignment 1**
 
-A production-grade Flask REST API for gym program and member management, deployed through a fully automated CI/CD pipeline using **GitHub Actions** and **Jenkins**.
+A production-grade Flask REST API for gym program and member management, deployed through a Jenkins-driven CI/CD pipeline with Docker, SonarQube, and Kubernetes rollout strategies on **Minikube**.
 
 ---
 
@@ -17,7 +17,16 @@ aceest-devops/
 ├── app.py                        # Flask application (API + business logic)
 ├── requirements.txt              # Python dependencies
 ├── Dockerfile                    # Multi-stage Docker build
-├── Jenkinsfile                   # Declarative Jenkins pipeline
+├── Jenkinsfile                   # Jenkins CI/CD + Minikube deployment pipeline
+├── sonar-project.properties      # SonarQube scanner configuration
+├── k8s/                          # Kubernetes manifests for all rollout strategies
+│   ├── rolling/
+│   ├── blue-green/
+│   ├── canary/
+│   ├── shadow/
+│   └── ab-testing/
+├── scripts/
+│   └── k8s/                      # Deploy / verify / promote / rollback helpers
 ├── .gitignore
 ├── .github/
 │   └── workflows/
@@ -181,6 +190,46 @@ docker stop aceest && docker rm aceest
 
 ---
 
+## ☸️ Kubernetes Deployment Strategies
+
+The repository now includes Minikube-ready manifests and Jenkins automation for:
+
+- **Rolling Update** using Kubernetes native rollout history and `kubectl rollout undo`
+- **Blue-Green Deployment** with `aceest-active` and `aceest-preview` services plus service-selector cutover
+- **Canary Release** with NGINX Ingress weighted routing and deterministic header-based verification
+- **Shadow Deployment** with mirrored traffic to a non-user-facing candidate service
+- **A/B Testing** with header-based routing between variant A and variant B
+
+The Flask `/health` endpoint exposes deployment metadata so each strategy can be validated during the pipeline.
+
+Key folders:
+
+```text
+k8s/
+  namespace.yaml
+  configmap.yaml
+  rolling/
+  blue-green/
+  canary/
+  shadow/
+  ab-testing/
+
+scripts/k8s/
+  deploy_strategy.sh
+  verify_rollout.sh
+  promote_release.sh
+  rollback.sh
+```
+
+Minikube prerequisites:
+
+```bash
+minikube start
+minikube addons enable ingress
+```
+
+---
+
 ## 🔧 Jenkins — BUILD Configuration
 
 ### Prerequisites
@@ -226,12 +275,15 @@ Checkout → Setup Environment → Lint → Test → Docker Build → Container 
 
 | Stage | Action | Artifact |
 |-------|--------|----------|
-| Checkout | `git pull` from GitHub | — |
-| Setup | `pip install -r requirements.txt` in virtualenv | — |
-| Lint | `flake8` syntax + style checks | — |
-| Test | `pytest` with JUnit XML + HTML coverage | `reports/junit.xml`, `reports/htmlcov/` |
-| Docker Build | `docker build` multi-stage | `aceest-fitness:<BUILD_NUMBER>` |
-| Smoke Test | `curl /health` + `curl /programs` on running container | — |
+| Checkout | Pull repository and deployment assets | — |
+| Build Container Image | `docker build` | `aceest-fitness:<tag>` |
+| Pytest In Container | Execute tests inside the built image | `reports/junit.xml`, `reports/coverage.xml`, `reports/htmlcov/` |
+| SonarQube Analysis | Run static analysis and upload reports | SonarQube dashboard + `reports/sonar-report-task.txt` |
+| Quality Gate | Stop pipeline on failed quality gate | — |
+| Prepare Minikube | Enable ingress and load the image into Minikube | — |
+| Deploy Strategy | Apply manifests for the selected rollout mode | Kubernetes resources |
+| Verify Deployment | Strategy-specific health validation | — |
+| Promote Or Finalize | Blue-green cutover / canary promotion / no-op finalization | — |
 
 ---
 

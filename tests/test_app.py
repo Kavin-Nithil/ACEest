@@ -23,6 +23,9 @@ from app import (
     get_member,
     PROGRAMS,
     MEMBERS,
+    WORKOUT_LOGS,
+    PROGRESS,
+    DIET_LOGS,
     _member_id_counter,
 )
 
@@ -39,11 +42,17 @@ def client():
 
 @pytest.fixture(autouse=True)
 def reset_members():
-    """Clear in-memory member store before every test for isolation."""
+    """Clear in-memory stores before every test for isolation."""
     MEMBERS.clear()
+    WORKOUT_LOGS.clear()
+    PROGRESS.clear()
+    DIET_LOGS.clear()
     _member_id_counter[0] = 1
     yield
     MEMBERS.clear()
+    WORKOUT_LOGS.clear()
+    PROGRESS.clear()
+    DIET_LOGS.clear()
     _member_id_counter[0] = 1
 
 
@@ -231,6 +240,11 @@ class TestHealthRoute:
     def test_health_returns_service_name(self, client):
         data = client.get("/health").get_json()
         assert "ACEest" in data["service"]
+
+    def test_health_exposes_deployment_metadata(self, client):
+        data = client.get("/health").get_json()
+        assert data["deployment"]["version"] == "dev"
+        assert data["deployment"]["track"] == "local"
 
 
 class TestIndexRoute:
@@ -457,7 +471,7 @@ class TestProgressRoute:
                            content_type="application/json")
 
         data = resp.get_json()
-        assert len(data["weights"]) == 3
+        assert len(data["weights"]) == 2
 
     def test_progress_missing_field(self, client):
         resp = client.post("/progress",
@@ -497,6 +511,14 @@ class TestDashboardRoute:
     def test_dashboard_returns_member_data(self, client):
         member = add_member("John", 32, "MG")
 
+        client.post("/workout-log",
+                    json={
+                        "member_id": member["id"],
+                        "workout": "Rowing Intervals",
+                        "duration_minutes": 20
+                    },
+                    content_type="application/json")
+
         resp = client.get(f"/dashboard/{member['id']}")
 
         assert resp.status_code == 200
@@ -519,7 +541,7 @@ class TestDashboardRoute:
         resp = client.get(f"/dashboard/{member['id']}")
         data = resp.get_json()
 
-        assert data["total_workouts"] == 2
+        assert data["total_workouts"] == 1
 
     def test_dashboard_member_not_found(self, client):
         resp = client.get("/dashboard/9999")

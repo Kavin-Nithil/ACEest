@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: aceest-active
+  namespace: __NAMESPACE__
+  labels:
+    app: aceest-fitness
+    strategy: blue-green
+spec:
+  selector:
+    app: aceest-fitness
+    strategy: blue-green
+    color: __ACTIVE_COLOR__
+  ports:
+    - name: http
+      port: 80
+      targetPort: 5000

@@ -1,0 +1,54 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aceest-shadow-candidate
+  namespace: __NAMESPACE__
+  labels:
+    app: aceest-fitness
+    strategy: shadow
+    track: shadow
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app: aceest-fitness
+      strategy: shadow
+      track: shadow
+  template:
+    metadata:
+      labels:
+        app: aceest-fitness
+        strategy: shadow
+        track: shadow
+    spec:
+      containers:
+        - name: aceest
+          image: __IMAGE__
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 5000
+          envFrom:
+            - configMapRef:
+                name: aceest-runtime-config
+          env:
+            - name: APP_VERSION
+              value: __APP_VERSION__
+            - name: APP_TRACK
+              value: shadow
+            - name: APP_EXPERIMENT
+              value: mirror
+            - name: APP_COLOR
+              value: shadow
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 5000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 5000
+            initialDelaySeconds: 15
+            periodSeconds: 20

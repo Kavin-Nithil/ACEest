@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: aceest-runtime-config
+  namespace: __NAMESPACE__
+data:
+  FLASK_APP: app.py
+  FLASK_ENV: production
+  PYTHONDONTWRITEBYTECODE: "1"
+  PYTHONUNBUFFERED: "1"

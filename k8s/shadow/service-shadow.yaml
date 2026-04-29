@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: aceest-shadow-candidate
+  namespace: __NAMESPACE__
+spec:
+  selector:
+    app: aceest-fitness
+    strategy: shadow
+    track: shadow
+  ports:
+    - name: http
+      port: 80
+      targetPort: 5000
