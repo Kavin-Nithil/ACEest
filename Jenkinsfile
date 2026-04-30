@@ -91,6 +91,34 @@ pipeline {
         stage('Validate Tooling') {
             steps {
                 sh '''
+                    # Install Docker CLI if missing
+                    if ! command -v docker >/dev/null 2>&1; then
+                        apt-get update && apt-get install -y docker.io
+                    fi
+                    
+                    # Install kubectl if missing
+                    if ! command -v kubectl >/dev/null 2>&1; then
+                        curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+                        chmod +x kubectl
+                        mv kubectl /usr/local/bin/
+                    fi
+                    
+                    # Install minikube if missing
+                    if ! command -v minikube >/dev/null 2>&1; then
+                        curl -LO "https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64"
+                        install minikube-linux-amd64 /usr/local/bin/minikube
+                    fi
+                    
+                    # Install sonar-scanner if missing
+                    if ! command -v sonar-scanner >/dev/null 2>&1; then
+                        apt-get update && apt-get install -y unzip wget
+                        wget -qO sonar-scanner.zip "https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-5.0.1.3006-linux.zip"
+                        unzip -q sonar-scanner.zip
+                        mv sonar-scanner-5.0.1.3006-linux /opt/sonar-scanner
+                        ln -s /opt/sonar-scanner/bin/sonar-scanner /usr/local/bin/sonar-scanner
+                        rm sonar-scanner.zip
+                    fi
+
                     command -v docker
                     command -v kubectl
                     command -v minikube
