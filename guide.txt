@@ -1,0 +1,610 @@
+ACEest Local DevOps Pipeline Execution Guide
+============================================
+
+This guide explains how to run the project locally for:
+- Continuous Delivery and Deployment Strategies
+- Automated Build and Testing Integration
+- Jenkins pipeline execution
+- SonarQube quality gate validation
+- Kubernetes rollout verification
+- Screenshot collection for documentation
+
+
+1. What already exists in this repository
+-----------------------------------------
+
+This repository already contains:
+- Docker build configuration in `Dockerfile`
+- Jenkins pipeline in `Jenkinsfile`
+- SonarQube configuration in `sonar-project.properties`
+- Kubernetes manifests in `k8s/`
+- Rollout automation scripts in `scripts/k8s/`
+- Pytest test suite in `tests/`
+
+The pipeline supports these deployment strategies:
+- Rolling Update
+- Blue-Green Deployment
+- Canary Release
+- Shadow Deployment
+- A/B Testing
+
+
+2. Local prerequisites
+----------------------
+
+Install these tools on your machine:
+- Git
+- Python 3.11+ or 3.12
+- pip
+- Docker
+- kubectl
+- Minikube
+- Jenkins
+- SonarQube
+- sonar-scanner
+- curl
+
+Important:
+- The Jenkins pipeline validates `docker`, `kubectl`, `minikube`, and `sonar-scanner`.
+- If Jenkins runs inside a plain container without those tools, the pipeline will fail.
+- The provided `devops/docker-compose.yml` starts Jenkins only. You still need the required tooling available to the Jenkins runtime or agent.
+
+
+3. Clone the project
+--------------------
+
+```bash
+git clone <your-repository-url>
+cd ACEest
+```
+
+
+4. Create Python environment and install dependencies
+-----------------------------------------------------
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+
+5. Run tests locally
+--------------------
+
+Run the full test suite:
+
+```bash
+pytest tests -v
+```
+
+Run coverage:
+
+```bash
+pytest tests -v --cov=app --cov-report=term-missing
+```
+
+Expected result:
+- All tests should pass
+- Coverage should be at least 80%
+
+
+6. Build Docker images
+----------------------
+
+Build at least two image tags so you can demonstrate deployment changes:
+
+```bash
+docker build -t aceest-fitness:v1 .
+docker build -t aceest-fitness:v2 .
+docker build -t aceest-fitness:latest .
+```
+
+Optional local container run:
+
+```bash
+docker run -d -p 5000:5000 --name aceest-local aceest-fitness:v1
+curl http://localhost:5000/health
+docker stop aceest-local
+docker rm aceest-local
+```
+
+
+7. Start Minikube
+-----------------
+
+```bash
+minikube start --driver=docker
+minikube addons enable ingress
+kubectl -n ingress-nginx rollout status deployment/ingress-nginx-controller --timeout=180s
+```
+
+Load images into Minikube:
+
+```bash
+minikube image load aceest-fitness:v1
+minikube image load aceest-fitness:v2
+minikube image load aceest-fitness:latest
+```
+
+
+8. Export common environment variables
+--------------------------------------
+
+```bash
+export IMAGE_REPO=aceest-fitness
+export K8S_NAMESPACE=aceest
+export APP_HOST=aceest.local
+export CANARY_WEIGHT=20
+```
+
+These values are used by the scripts in `scripts/k8s/`.
+
+
+9. Manual execution pattern for any strategy
+--------------------------------------------
+
+For every strategy, the flow is:
+
+```bash
+export DEPLOYMENT_STRATEGY=<rolling|blue-green|canary|shadow|ab>
+export IMAGE_TAG=<v1|v2|latest>
+bash scripts/k8s/deploy_strategy.sh
+bash scripts/k8s/verify_rollout.sh
+bash scripts/k8s/promote_release.sh
+```
+
+Rollback command:
+
+```bash
+bash scripts/k8s/rollback.sh
+```
+
+
+10. Rolling Update procedure
+----------------------------
+
+Deploy:
+
+```bash
+export DEPLOYMENT_STRATEGY=rolling
+export IMAGE_TAG=v1
+bash scripts/k8s/deploy_strategy.sh
+bash scripts/k8s/verify_rollout.sh
+```
+
+Check resources:
+
+```bash
+kubectl get deploy,po,svc -n aceest
+kubectl rollout history deployment/aceest-rolling -n aceest
+```
+
+Update to a new version:
+
+```bash
+export IMAGE_TAG=v2
+bash scripts/k8s/deploy_strategy.sh
+bash scripts/k8s/verify_rollout.sh
+kubectl rollout history deployment/aceest-rolling -n aceest
+```
+
+Rollback:
+
+```bash
+bash scripts/k8s/rollback.sh
+kubectl rollout history deployment/aceest-rolling -n aceest
+```
+
+
+11. Blue-Green Deployment procedure
+-----------------------------------
+
+Deploy:
+
+```bash
+export DEPLOYMENT_STRATEGY=blue-green
+export IMAGE_TAG=v1
+bash scripts/k8s/deploy_strategy.sh
+bash scripts/k8s/verify_rollout.sh
+kubectl get deploy,svc,pods -n aceest
+```
+
+Deploy candidate version:
+
+```bash
+export IMAGE_TAG=v2
+bash scripts/k8s/deploy_strategy.sh
+bash scripts/k8s/verify_rollout.sh
+kubectl get svc aceest-active aceest-preview -n aceest -o wide
+```
+
+Promote candidate:
+
+```bash
+bash scripts/k8s/promote_release.sh
+kubectl get svc aceest-active aceest-preview -n aceest -o yaml
+```
+
+Rollback:
+
+```bash
+bash scripts/k8s/rollback.sh
+kubectl get svc aceest-active aceest-preview -n aceest -o yaml
+```
+
+
+12. Canary Release procedure
+----------------------------
+
+Deploy:
+
+```bash
+export DEPLOYMENT_STRATEGY=canary
+export IMAGE_TAG=v2
+bash scripts/k8s/deploy_strategy.sh
+bash scripts/k8s/verify_rollout.sh
+kubectl get ingress -n aceest
+```
+
+Start port-forward:
+
+```bash
+kubectl -n ingress-nginx port-forward service/ingress-nginx-controller 8080:80
+```
+
+In another terminal, test stable traffic:
+
+```bash
+curl -H "Host: aceest.local" http://127.0.0.1:8080/health
+```
+
+Test forced canary traffic:
+
+```bash
+curl -H "Host: aceest.local" -H "X-Canary: always" http://127.0.0.1:8080/health
+```
+
+Promote:
+
+```bash
+bash scripts/k8s/promote_release.sh
+kubectl get ingress -n aceest
+kubectl get deploy -n aceest
+```
+
+Rollback:
+
+```bash
+bash scripts/k8s/rollback.sh
+kubectl get ingress -n aceest
+kubectl get deploy -n aceest
+```
+
+
+13. Shadow Deployment procedure
+-------------------------------
+
+Deploy:
+
+```bash
+export DEPLOYMENT_STRATEGY=shadow
+export IMAGE_TAG=v2
+bash scripts/k8s/deploy_strategy.sh
+bash scripts/k8s/verify_rollout.sh
+kubectl get ingress -n aceest
+kubectl get deploy,svc,pods -n aceest
+```
+
+Check mirrored traffic reached the shadow deployment:
+
+```bash
+kubectl logs deployment/aceest-shadow-candidate -n aceest --since=5m
+```
+
+Rollback:
+
+```bash
+bash scripts/k8s/rollback.sh
+kubectl get deploy -n aceest
+```
+
+
+14. A/B Testing procedure
+-------------------------
+
+Deploy:
+
+```bash
+export DEPLOYMENT_STRATEGY=ab
+export IMAGE_TAG=v2
+bash scripts/k8s/deploy_strategy.sh
+bash scripts/k8s/verify_rollout.sh
+kubectl get ingress -n aceest
+```
+
+Start port-forward:
+
+```bash
+kubectl -n ingress-nginx port-forward service/ingress-nginx-controller 8081:80
+```
+
+In another terminal, test default variant A:
+
+```bash
+curl -H "Host: aceest.local" http://127.0.0.1:8081/health
+```
+
+Test variant B:
+
+```bash
+curl -H "Host: aceest.local" -H "X-Experiment: fitness-b" http://127.0.0.1:8081/health
+```
+
+Finalize:
+
+```bash
+bash scripts/k8s/promote_release.sh
+```
+
+Rollback:
+
+```bash
+bash scripts/k8s/rollback.sh
+kubectl get ingress -n aceest
+kubectl get deploy -n aceest
+```
+
+
+15. Start SonarQube locally
+---------------------------
+
+Run SonarQube:
+
+```bash
+docker run -d \
+  --name sonarqube \
+  -p 9000:9000 \
+  -e SONAR_ES_BOOTSTRAP_CHECKS_DISABLE=true \
+  sonarqube:community
+```
+
+Open:
+
+```text
+http://localhost:9000
+```
+
+Then:
+1. Log in to SonarQube
+2. Create a project named `aceest-fitness`
+3. Generate a token
+4. Keep that token for Jenkins configuration
+
+Manual scanner run if needed:
+
+```bash
+mkdir -p reports/htmlcov
+pytest tests -v \
+  --junitxml=reports/junit.xml \
+  --cov=app \
+  --cov-report=xml:reports/coverage.xml \
+  --cov-report=html:reports/htmlcov \
+  --cov-fail-under=80
+
+sonar-scanner \
+  -Dsonar.projectKey=aceest-fitness \
+  -Dsonar.host.url=http://localhost:9000 \
+  -Dsonar.token=<your-token>
+```
+
+
+16. Start Jenkins locally
+-------------------------
+
+If using the provided Docker Compose file, create the external network first:
+
+```bash
+docker network create aceest-ci
+docker compose -f devops/docker-compose.yml up -d
+```
+
+Open:
+
+```text
+http://localhost:8080
+```
+
+Get the initial admin password:
+
+```bash
+docker exec jenkins cat /var/jenkins_home/secrets/initialAdminPassword
+```
+
+Install these Jenkins plugins:
+- Pipeline
+- Git
+- Docker Pipeline
+- HTML Publisher
+- JUnit
+- SonarQube Scanner
+- Quality Gates
+
+Important:
+- The Jenkins pipeline expects the Jenkins executor to have access to:
+  - Docker
+  - kubectl
+  - Minikube
+  - sonar-scanner
+- If your Jenkins container does not include these tools, use:
+  - a host-based Jenkins installation, or
+  - a custom Jenkins image, or
+  - a separate Jenkins agent with these tools installed
+
+
+17. Configure SonarQube in Jenkins
+----------------------------------
+
+In Jenkins:
+1. Go to `Manage Jenkins`
+2. Open `System`
+3. Find `SonarQube servers`
+4. Add a server named `SonarQube`
+5. Set the server URL to `http://localhost:9000`
+6. Add the SonarQube token as Jenkins credentials
+
+
+18. Create Jenkins pipeline job
+-------------------------------
+
+In Jenkins:
+1. Click `New Item`
+2. Enter job name: `aceest-pipeline`
+3. Select `Pipeline`
+4. Click `OK`
+5. Under `Pipeline`, choose `Pipeline script from SCM`
+6. Select `Git`
+7. Enter repository URL
+8. Set branch, usually `*/main`
+9. Set script path to `Jenkinsfile`
+10. Save
+
+
+19. Run the Jenkins pipeline
+----------------------------
+
+The pipeline stages are:
+- Checkout
+- Initialize
+- Validate Tooling
+- Build Container Image
+- Pytest In Container
+- SonarQube Analysis
+- Quality Gate
+- Prepare Minikube
+- Deploy Strategy
+- Verify Deployment
+- Promote Or Finalize
+
+Suggested parameter values for the first run:
+- `DEPLOYMENT_STRATEGY=rolling`
+- `IMAGE_REPO=aceest-fitness`
+- `IMAGE_TAG=v1`
+- `K8S_NAMESPACE=aceest`
+- `APP_HOST=aceest.local`
+- `CANARY_WEIGHT=20`
+- `PROMOTE_CANARY=true`
+- `SONARQUBE_SERVER=SonarQube`
+- `SONAR_PROJECT_KEY=aceest-fitness`
+
+Run separate Jenkins builds for:
+1. Rolling
+2. Blue-Green
+3. Canary
+4. Shadow
+5. A/B
+
+
+20. What to verify in the health endpoint
+-----------------------------------------
+
+The `/health` endpoint returns deployment metadata.
+
+Check:
+- `deployment.version`
+- `deployment.track`
+- `deployment.color`
+- `deployment.experiment`
+
+Examples:
+- Rolling should show the deployed version
+- Blue-Green should show candidate color during preview
+- Canary should show `track=stable` or `track=canary`
+- Shadow should keep stable user response while candidate receives mirrored traffic
+- A/B should show `experiment=variant-a` or `experiment=variant-b`
+
+
+21. Screenshot checklist
+------------------------
+
+Take screenshots for the report from these points:
+
+1. Local `pytest` terminal output showing all tests passed
+2. Docker image build output
+3. Minikube running status
+4. `kubectl get deploy,svc,ingress,pods -n aceest`
+5. Jenkins Stage View with all stages
+6. Jenkins console output for:
+   - Pytest in container
+   - SonarQube analysis
+   - Verify deployment
+7. SonarQube project dashboard
+8. SonarQube Quality Gate result
+9. Rolling update rollout history
+10. Blue-Green active and preview services before and after promotion
+11. Canary stable response and canary response with `X-Canary: always`
+12. Shadow deployment logs showing mirrored traffic
+13. A/B response for default request and `X-Experiment: fitness-b`
+14. Rollback command output and post-rollback cluster state
+15. `/health` JSON response proving version, track, color, or experiment
+
+
+22. Recommended execution order for your demo
+---------------------------------------------
+
+Use this order for a clean demonstration:
+
+1. Run local tests
+2. Build Docker images `v1` and `v2`
+3. Start SonarQube
+4. Start Minikube and enable ingress
+5. Start Jenkins
+6. Run Jenkins pipeline with `rolling`
+7. Run Jenkins pipeline with `blue-green`
+8. Run Jenkins pipeline with `canary`
+9. Run Jenkins pipeline with `shadow`
+10. Run Jenkins pipeline with `ab`
+11. Demonstrate rollback for at least one strategy
+12. Capture screenshots after each major step
+
+
+23. Useful cleanup commands
+---------------------------
+
+Delete Kubernetes namespace:
+
+```bash
+kubectl delete namespace aceest
+```
+
+Stop Jenkins:
+
+```bash
+docker stop jenkins
+docker rm jenkins
+```
+
+Stop SonarQube:
+
+```bash
+docker stop sonarqube
+docker rm sonarqube
+```
+
+Stop Minikube:
+
+```bash
+minikube stop
+```
+
+
+24. Notes
+---------
+
+- The deployment scripts write a `.deployment-state` file used by verify, promote, and rollback logic.
+- Blue-Green promotion works by switching service selectors.
+- Canary uses NGINX ingress weighted and header-based routing.
+- Shadow uses ingress traffic mirroring.
+- A/B testing uses header-based routing with `X-Experiment: fitness-b`.
+- Rolling update rollback uses Kubernetes rollout undo.
+- The Jenkins pipeline already archives reports and artifacts after execution.
